@@ -1,82 +1,80 @@
 # Branch Report: codex/docker-bootstrap
 
 ## Summary
-This branch establishes a stable backend development baseline for PaprikaPlay:
-- Docker build/run fixes for backend development and production targets.
-- Environment and secret handling cleanup.
-- Minimal vertical-slice realtime/table flow.
-- Test framework setup with integration tests.
-- CI workflow for backend build and tests.
+This branch now includes the original backend vertical slice plus follow-up fixes for CI, Dockerized database reliability, and profile isolation between development and production.
 
-## Branch and Commit
+## Branch and Latest Commits
 - Branch: `codex/docker-bootstrap`
-- Commit: `cfdd6b06dcadd8fe528cd44bcc40f008caf7d1a5`
-- Commit message: `feat: docker + env hardening, vertical slice join flows, tests, and backend CI`
+- Head commit: `cc9aa2f`
+- Recent commits:
+  - `cc9aa2f` `chore: split docker services into dev and prod profiles`
+  - `25e41cf` `chore: align production env example with db variable pattern`
+  - `cd72b91` `fix: generate prisma client during build for CI`
+  - `cc60c01` `fix: resolve prisma build errors and add local docker postgres`
+  - `2dbfd68` `docs: add branch implementation report`
+  - `cfdd6b0` `feat: docker + env hardening, vertical slice join flows, tests, and backend CI`
 
-## What Changed
+## What Changed Since Initial Report
 
-### Docker and Runtime
-- Added backend image build file with dev/prod targets: `backend/Dockerfile`
-- Added Docker context ignore rules: `backend/.dockerignore`
-- Updated compose to use backend env file and consistent port mapping (`3001`): `docker-compose.yml`
-- Added standalone production compose profile: `docker-compose.prod.yml`
-- Added backend startup retry behavior for DB connection and health behavior in app startup path: `backend/index.ts`
+### CI and Build Reliability
+- Fixed Prisma TypeScript build failures in `backend/index.ts` by using a typed `PrismaClient` initialization path.
+- Updated backend build script in `backend/package.json` to run `pnpm prisma generate && tsc`, ensuring CI always has generated Prisma client types.
+- Result: backend CI check now passes for the open PR.
 
-### Environment and Secrets
-- Added development env template: `backend/.env.example`
-- Added production env template: `backend/.env.production.example`
-- Stopped tracking local secret env file (`backend/.env`) and ensured ignores are in place: `.gitignore`
+### Local Database Reliability (Dev)
+- Added a local Postgres service to `docker-compose.yml`:
+  - service: `db` (`postgres:16-alpine`)
+  - healthcheck with `pg_isready`
+  - named volume `paprika_postgres_data`
+- Added `backend` dependency on healthy `db` in dev flow.
+- Updated `backend/.env.example` to include:
+  - `POSTGRES_USER`
+  - `POSTGRES_PASSWORD`
+  - `POSTGRES_DB`
+  - `DATABASE_URL` using `db:5432`
 
-### Backend Vertical Slice
-Implemented lightweight in-memory endpoints/events for first multiplayer slice in `backend/index.ts`:
-- `GET /api/health`
-- `POST /api/tables`
-- `GET /api/tables/:tableId/presence`
-- `GET /api/tables/join/:joinCode`
-- Socket events:
-  - `table:join`
-  - `table:joinByCode`
-  - Presence broadcast via `table:presence`
+### Environment Template Alignment (Prod)
+- Updated `backend/.env.production.example` to include the same explicit DB variable pattern:
+  - `POSTGRES_USER`
+  - `POSTGRES_PASSWORD`
+  - `POSTGRES_DB`
+  - `DATABASE_URL`
 
-### Testing Setup
-- Added Vitest configuration: `backend/vitest.config.ts`
-- Added test scripts and deps in `backend/package.json`
-- Added integration tests:
-  - `backend/tests/health.integration.test.ts`
-  - `backend/tests/table-presence.integration.test.ts`
-  - `backend/tests/join-code.integration.test.ts`
-  - `backend/tests/join-by-code.integration.test.ts`
-- Updated TS build config to compile to `dist/` and keep test artifacts out of production output: `backend/tsconfig.json`
+### Docker Profile Isolation
+- Added explicit `dev` profile to services in `docker-compose.yml`:
+  - `backend`
+  - `db`
+- Updated `docker-compose.prod.yml` to define a dedicated `backend_prod` service with `prod` profile.
+- This prevents production runs from inheriting dev services.
 
-### CI
-- Added backend CI workflow: `.github/workflows/backend-ci.yml`
-  - Runs on push/PR when backend files change
-  - Executes: install, build, test
-
-### Prisma
-- Prisma schema and initial migration included:
-  - `backend/prisma/schema.prisma`
-  - `backend/prisma/migrations/20250531020013_init/migration.sql`
-  - `backend/prisma/migrations/migration_lock.toml`
+## Current Compose Usage
+- Dev:
+  - `docker compose --profile dev up --build -d`
+- Prod:
+  - `docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile prod up --build -d`
 
 ## Validation Performed
-The following checks were executed and passed during branch prep:
-- `pnpm prisma migrate dev` (applied initial migration)
-- `pnpm prisma migrate status` (database up to date)
-- `pnpm build` (backend TypeScript compile)
-- `pnpm test` (local backend integration tests)
-- `docker compose exec -T backend pnpm test` (container test path)
 
-## Known Notes
-- Branch currently includes `AGENTS.md` and `scripts/generate_code_snapshot.sh` in the commit set; review whether both are intended for merge.
-- Health endpoint reports DB readiness using 503 while waiting for DB connectivity.
+### Development
+- `pnpm build` (pass)
+- `pnpm test` (pass)
+- `docker compose --profile dev config` (valid)
+- `docker compose up --build -d --remove-orphans` (dev stack up)
+- `curl -i -sS http://localhost:3001/api/health` returned `200` with `{"ok":true,...}`
+- `docker compose exec -T backend pnpm prisma migrate deploy` (applied migration)
+- `docker compose exec -T backend pnpm prisma migrate status` (schema up to date)
 
-## Recommended Next Phase
-1. Add host/display/player role-aware auth handshake for sockets.
-2. Introduce household/lobby/table persistence pathways (thin repository/service split).
-3. Add join-code + table lifecycle validation at service layer (dedupe, expiry, collision handling).
-4. Keep adding one integration test per new endpoint/event.
+### Production
+- `docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile prod config` (valid and isolated: only `backend_prod`)
+- Runtime DB connectivity probe using prod container:
+  - `docker compose ... --profile prod run --rm --no-deps backend_prod node dist/index.js`
+  - Result: repeated DB retry failures against configured prod `DATABASE_URL` from this environment (probe timed out)
 
-## PR Link
-- Create PR from this branch:
-  - `https://github.com/PaprikaCayenne/PaprikaPlay/pull/new/codex/docker-bootstrap`
+## Database Connectivity Status
+- Dev env: connected and healthy.
+- Prod env: profile wiring is correct, but DB host reachability from this environment is currently failing.
+
+## Open PR
+- Active PR: `https://github.com/PaprikaCayenne/PaprikaPlay/pull/2`
+- Base: `main`
+- Head: `codex/docker-bootstrap`
