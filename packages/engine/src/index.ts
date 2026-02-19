@@ -17,3 +17,52 @@ export class SeededRng {
     return Math.floor(this.next() * maxExclusive);
   }
 }
+
+export type Suit = 'clubs' | 'diamonds' | 'hearts' | 'spades';
+export type Rank =
+  | '2'
+  | '3'
+  | '4'
+  | '5'
+  | '6'
+  | '7'
+  | '8'
+  | '9'
+  | 'T'
+  | 'J'
+  | 'Q'
+  | 'K'
+  | 'A';
+
+export type Card = {
+  suit: Suit;
+  rank: Rank;
+};
+
+const SUITS: Suit[] = ['clubs', 'diamonds', 'hearts', 'spades'];
+const RANKS: Rank[] = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
+
+export function buildDeck(): Card[] {
+  const deck: Card[] = [];
+
+  for (const suit of SUITS) {
+    for (const rank of RANKS) {
+      deck.push({ suit, rank });
+    }
+  }
+
+  return deck;
+}
+
+export function shuffleDeck(deck: Card[], rng: SeededRng): Card[] {
+  const shuffled = [...deck];
+
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = rng.nextInt(i + 1);
+    const temp = shuffled[i];
+    shuffled[i] = shuffled[j];
+    shuffled[j] = temp;
+  }
+
+  return shuffled;
+}

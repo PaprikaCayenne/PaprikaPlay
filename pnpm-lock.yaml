@@ -83,6 +83,12 @@ importers:
 
   packages/games/holdem:
     dependencies:
+      '@paprikaplay/betting':
+        specifier: workspace:*
+        version: link:../../betting
+      '@paprikaplay/engine':
+        specifier: workspace:*
+        version: link:../../engine
       '@paprikaplay/game-kit':
         specifier: workspace:*
         version: link:../../game-kit
@@ -90,6 +96,9 @@ importers:
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.11)
 
 packages:
 
