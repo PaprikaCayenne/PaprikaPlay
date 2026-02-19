@@ -1,0 +1,37 @@
+services:
+  db:
+    profiles:
+      - dev
+    image: postgres:16-alpine
+    container_name: paprika_db
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    volumes:
+      - paprika_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    profiles:
+      - dev
+    build:
+      context: ./backend
+      target: dev
+    container_name: paprika_backend
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    ports:
+      - "3001:3001"
+    env_file:
+      - ./backend/.env
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  paprika_postgres_data:
