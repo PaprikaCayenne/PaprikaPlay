@@ -1,5 +1,7 @@
 services:
   db:
+    profiles:
+      - dev
     image: postgres:16-alpine
     container_name: paprika_db
     restart: unless-stopped
@@ -14,6 +16,8 @@ services:
       retries: 10
 
   backend:
+    profiles:
+      - dev
     build:
       context: ./backend
       target: dev

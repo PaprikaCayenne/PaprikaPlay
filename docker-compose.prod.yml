@@ -1,5 +1,7 @@
 services:
-  backend:
+  backend_prod:
+    profiles:
+      - prod
     build:
       context: ./backend
       target: prod
