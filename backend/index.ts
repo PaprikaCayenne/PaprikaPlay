@@ -253,6 +253,35 @@ io.on('connection', (socket) => {
     },
   );
 
+  socket.on(
+    'table:watch',
+    async ({ tableId }: { tableId?: string }, ack?: (response: TableAckResponse) => void) => {
+      if (!tableId) {
+        socket.emit('table:error', { message: 'tableId is required' });
+        ack?.({ ok: false, message: 'tableId is required' });
+        return;
+      }
+
+      const table = tables.get(tableId);
+      if (!table) {
+        socket.emit('table:error', { message: 'Table not found' });
+        ack?.({ ok: false, message: 'Table not found' });
+        return;
+      }
+
+      await socket.join(`table:${tableId}`);
+      ack?.({ ok: true, tableId, playerCount: table.players.size });
+
+      const state = gameStates.get(tableId);
+      if (state) {
+        io.to(socket.id).emit('game:publicView', {
+          tableId,
+          view: holdemModule.getPublicView(state),
+        });
+      }
+    },
+  );
+
   socket.on('game:start', ({ tableId, options }: GameStartPayload, ack?: (response: GameAckResponse) => void) => {
     if (!tableId) {
       socket.emit('game:error', { message: 'tableId is required' });

@@ -119,28 +119,28 @@
 
 ## 5) `apps/web` | Game UI screens
 
-- [ ] `ScreenPage`
-  - [ ] Board cards
-  - [ ] Phase
-  - [ ] Pot
-  - [ ] Player seats with stack and status
-  - [ ] Action log
-- [ ] `PlayerPage`
-  - [ ] Hole cards
-  - [ ] Available actions with bet sizing
-  - [ ] Current phase
-- [ ] Action buttons
-  - [ ] Fold
-  - [ ] Check
-  - [ ] Call
-  - [ ] Bet (with input)
-  - [ ] Raise (with input)
-  - [ ] All-in
-- [ ] Connect game socket events
-  - [ ] `game:publicView`
-  - [ ] `game:playerView`
-- [ ] Host controls
-  - [ ] "Start Game" button on PlayerPage (if host)
+- [x] `ScreenPage`
+  - [x] Board cards
+  - [x] Phase
+  - [x] Pot
+  - [x] Player seats with stack and status
+  - [x] Action log
+- [x] `PlayerPage`
+  - [x] Hole cards
+  - [x] Available actions with bet sizing
+  - [x] Current phase
+- [x] Action buttons
+  - [x] Fold
+  - [x] Check
+  - [x] Call
+  - [x] Bet (with input)
+  - [x] Raise (with input)
+  - [x] All-in
+- [x] Connect game socket events
+  - [x] `game:publicView`
+  - [x] `game:playerView`
+- [x] Host controls
+  - [x] "Start Game" button on PlayerPage (if host)
 
 ## 6) Verification
 
