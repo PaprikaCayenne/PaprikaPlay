@@ -3,7 +3,8 @@ services:
     profiles:
       - prod
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
       target: prod
     container_name: paprika_backend_prod
     volumes: []

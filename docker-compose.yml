@@ -19,11 +19,14 @@ services:
     profiles:
       - dev
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
       target: dev
     container_name: paprika_backend
+    working_dir: /app
+    command: node backend/dist/index.js
     volumes:
-      - ./backend:/app
+      - ./:/app
       - /app/node_modules
     ports:
       - "3001:3001"
