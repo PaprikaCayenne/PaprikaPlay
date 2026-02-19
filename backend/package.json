@@ -12,6 +12,7 @@
     "prisma": "prisma"
   },
   "dependencies": {
+    "@paprikaplay/games-holdem": "workspace:*",
     "@prisma/client": "^6.8.2",
     "cors": "^2.8.5",
     "dotenv": "^16.0.0",

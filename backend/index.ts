@@ -5,6 +5,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { randomInt } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
+import { holdemModule, type HoldemOptions, type HoldemState } from '@paprikaplay/games-holdem';
 
 dotenv.config();
 
@@ -20,6 +21,100 @@ const io = new Server(server, {
 });
 const tables = new Map<string, { id: string; name: string; joinCode: string; players: Set<string> }>();
 const socketPlayers = new Map<string, { tableId: string; playerId: string }>();
+const gameStates = new Map<string, HoldemState>();
+
+type TableAckResponse = {
+  ok: boolean;
+  message?: string;
+  tableId?: string;
+  playerCount?: number;
+};
+
+type GameAckResponse = {
+  ok: boolean;
+  message?: string;
+  tableId?: string;
+  phase?: HoldemState['phase'];
+  gameOver?: boolean;
+  summary?: string;
+};
+
+type GameActionPayload = {
+  type?: string;
+  payload?: Record<string, unknown>;
+};
+
+type GameStartPayload = {
+  tableId?: string;
+  options?: HoldemOptions;
+};
+
+function sanitizeHoldemOptions(options?: HoldemOptions): HoldemOptions | undefined {
+  if (!options) {
+    return undefined;
+  }
+
+  const sanitized: HoldemOptions = {};
+  if (typeof options.seed === 'number' && Number.isInteger(options.seed)) {
+    sanitized.seed = options.seed;
+  }
+  if (typeof options.initialStack === 'number' && Number.isInteger(options.initialStack) && options.initialStack > 0) {
+    sanitized.initialStack = options.initialStack;
+  }
+  if (typeof options.smallBlind === 'number' && Number.isInteger(options.smallBlind) && options.smallBlind > 0) {
+    sanitized.smallBlind = options.smallBlind;
+  }
+  if (typeof options.bigBlind === 'number' && Number.isInteger(options.bigBlind) && options.bigBlind > 0) {
+    sanitized.bigBlind = options.bigBlind;
+  }
+
+  if (Object.keys(sanitized).length === 0) {
+    return undefined;
+  }
+
+  return sanitized;
+}
+
+function emitGameViews(tableId: string) {
+  const state = gameStates.get(tableId);
+  if (!state) {
+    return;
+  }
+
+  io.to(`table:${tableId}`).emit('game:publicView', {
+    tableId,
+    view: holdemModule.getPublicView(state),
+  });
+
+  for (const [socketId, joined] of socketPlayers.entries()) {
+    if (joined.tableId !== tableId) {
+      continue;
+    }
+
+    io.to(socketId).emit('game:playerView', {
+      tableId,
+      playerId: joined.playerId,
+      view: holdemModule.getPlayerView(state, joined.playerId),
+    });
+  }
+}
+
+function emitGameViewsToSocket(socketId: string, tableId: string, playerId: string) {
+  const state = gameStates.get(tableId);
+  if (!state) {
+    return;
+  }
+
+  io.to(socketId).emit('game:publicView', {
+    tableId,
+    view: holdemModule.getPublicView(state),
+  });
+  io.to(socketId).emit('game:playerView', {
+    tableId,
+    playerId,
+    view: holdemModule.getPlayerView(state, playerId),
+  });
+}
 
 app.use(cors());
 app.use(express.json());
@@ -98,7 +193,7 @@ io.on('connection', (socket) => {
   const joinTable = async (
     tableId: string,
     playerId: string,
-    ack?: (response: { ok: boolean; message?: string; tableId?: string; playerCount?: number }) => void,
+    ack?: (response: TableAckResponse) => void,
   ) => {
     const table = tables.get(tableId);
     if (!table) {
@@ -116,13 +211,14 @@ io.on('connection', (socket) => {
       playerCount: table.players.size,
     });
     ack?.({ ok: true, tableId, playerCount: table.players.size });
+    emitGameViewsToSocket(socket.id, tableId, playerId);
   };
 
   socket.on(
     'table:join',
     async (
       { tableId, playerId }: { tableId?: string; playerId?: string },
-      ack?: (response: { ok: boolean; message?: string; tableId?: string; playerCount?: number }) => void,
+      ack?: (response: TableAckResponse) => void,
     ) => {
       if (!tableId || !playerId) {
         socket.emit('table:error', { message: 'tableId and playerId are required' });
@@ -138,7 +234,7 @@ io.on('connection', (socket) => {
     'table:joinByCode',
     async (
       { joinCode, playerId }: { joinCode?: string; playerId?: string },
-      ack?: (response: { ok: boolean; message?: string; tableId?: string; playerCount?: number }) => void,
+      ack?: (response: TableAckResponse) => void,
     ) => {
       if (!joinCode || !playerId) {
         socket.emit('table:error', { message: 'joinCode and playerId are required' });
@@ -154,6 +250,143 @@ io.on('connection', (socket) => {
       }
 
       await joinTable(table.id, playerId, ack);
+    },
+  );
+
+  socket.on('game:start', ({ tableId, options }: GameStartPayload, ack?: (response: GameAckResponse) => void) => {
+    if (!tableId) {
+      socket.emit('game:error', { message: 'tableId is required' });
+      ack?.({ ok: false, message: 'tableId is required' });
+      return;
+    }
+
+    const joined = socketPlayers.get(socket.id);
+    if (!joined || joined.tableId !== tableId) {
+      socket.emit('game:error', { message: 'Socket must join table before starting game' });
+      ack?.({ ok: false, message: 'Socket must join table before starting game' });
+      return;
+    }
+
+    const table = tables.get(tableId);
+    if (!table) {
+      socket.emit('game:error', { message: 'Table not found' });
+      ack?.({ ok: false, message: 'Table not found' });
+      return;
+    }
+
+    const playerIds = Array.from(table.players);
+    if (playerIds.length < 2) {
+      socket.emit('game:error', { message: 'At least 2 players are required to start a game' });
+      ack?.({ ok: false, message: 'At least 2 players are required to start a game' });
+      return;
+    }
+
+    const initialState = holdemModule.createInitialState(playerIds, sanitizeHoldemOptions(options));
+    const started = holdemModule.applyAction(initialState, joined.playerId, { type: 'START_HAND' });
+    if (!started.ok) {
+      socket.emit('game:error', { message: started.error });
+      ack?.({ ok: false, message: started.error });
+      return;
+    }
+
+    const nextState = started.state;
+    gameStates.set(tableId, nextState);
+    emitGameViews(tableId);
+    ack?.({
+      ok: true,
+      tableId,
+      phase: nextState.phase,
+      gameOver: holdemModule.isGameOver(nextState),
+      summary: holdemModule.getResult(nextState)?.summary,
+    });
+  });
+
+  socket.on(
+    'game:action',
+    (
+      { tableId, action }: { tableId?: string; action?: GameActionPayload },
+      ack?: (response: GameAckResponse) => void,
+    ) => {
+      if (!tableId) {
+        socket.emit('game:error', { message: 'tableId is required' });
+        ack?.({ ok: false, message: 'tableId is required' });
+        return;
+      }
+
+      if (!action?.type || typeof action.type !== 'string') {
+        socket.emit('game:error', { message: 'action.type is required' });
+        ack?.({ ok: false, message: 'action.type is required' });
+        return;
+      }
+
+      const joined = socketPlayers.get(socket.id);
+      if (!joined || joined.tableId !== tableId) {
+        socket.emit('game:error', { message: 'Socket must join table before acting' });
+        ack?.({ ok: false, message: 'Socket must join table before acting' });
+        return;
+      }
+
+      const state = gameStates.get(tableId);
+      if (!state) {
+        socket.emit('game:error', { message: 'Game has not started for table' });
+        ack?.({ ok: false, message: 'Game has not started for table' });
+        return;
+      }
+
+      const nextAction = action.payload
+        ? { type: action.type, payload: action.payload }
+        : { type: action.type };
+      const applied = holdemModule.applyAction(state, joined.playerId, nextAction);
+      if (!applied.ok) {
+        socket.emit('game:error', { message: applied.error });
+        ack?.({ ok: false, message: applied.error });
+        return;
+      }
+
+      const nextState = applied.state;
+      gameStates.set(tableId, nextState);
+      emitGameViews(tableId);
+      ack?.({
+        ok: true,
+        tableId,
+        phase: nextState.phase,
+        gameOver: holdemModule.isGameOver(nextState),
+        summary: holdemModule.getResult(nextState)?.summary,
+      });
+    },
+  );
+
+  socket.on(
+    'game:state',
+    ({ tableId }: { tableId?: string }, ack?: (response: GameAckResponse) => void) => {
+      if (!tableId) {
+        socket.emit('game:error', { message: 'tableId is required' });
+        ack?.({ ok: false, message: 'tableId is required' });
+        return;
+      }
+
+      const joined = socketPlayers.get(socket.id);
+      if (!joined || joined.tableId !== tableId) {
+        socket.emit('game:error', { message: 'Socket must join table before requesting state' });
+        ack?.({ ok: false, message: 'Socket must join table before requesting state' });
+        return;
+      }
+
+      const state = gameStates.get(tableId);
+      if (!state) {
+        socket.emit('game:error', { message: 'Game has not started for table' });
+        ack?.({ ok: false, message: 'Game has not started for table' });
+        return;
+      }
+
+      emitGameViewsToSocket(socket.id, tableId, joined.playerId);
+      ack?.({
+        ok: true,
+        tableId,
+        phase: state.phase,
+        gameOver: holdemModule.isGameOver(state),
+        summary: holdemModule.getResult(state)?.summary,
+      });
     },
   );
 
@@ -215,6 +448,7 @@ export { app, server };
 export function resetInMemoryStateForTests() {
   tables.clear();
   socketPlayers.clear();
+  gameStates.clear();
 }
 
 if (require.main === module) {

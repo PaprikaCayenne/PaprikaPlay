@@ -102,20 +102,20 @@
 
 ## 4) `backend/index.ts` | Game lifecycle wiring
 
-- [ ] Add in-memory `gameStates` map: `tableId -> HoldemState`
-- [ ] Socket event `game:start`
-  - [ ] Host triggers start
-  - [ ] Create initial state
-  - [ ] Emit public view to room
-- [ ] Socket event `game:action`
-  - [ ] Validate player turn
-  - [ ] Apply action
-  - [ ] Emit updated views
-- [ ] After each action:
-  - [ ] Emit `game:publicView` to table room
-  - [ ] Emit `game:playerView` to each player socket
-- [ ] Socket event `game:state`
-  - [ ] Player can request current player view (reconnect use case)
+- [x] Add in-memory `gameStates` map: `tableId -> HoldemState`
+- [x] Socket event `game:start`
+  - [x] Host triggers start
+  - [x] Create initial state
+  - [x] Emit public view to room
+- [x] Socket event `game:action`
+  - [x] Validate player turn
+  - [x] Apply action
+  - [x] Emit updated views
+- [x] After each action:
+  - [x] Emit `game:publicView` to table room
+  - [x] Emit `game:playerView` to each player socket
+- [x] Socket event `game:state`
+  - [x] Player can request current player view (reconnect use case)
 
 ## 5) `apps/web` | Game UI screens
 
@@ -144,8 +144,8 @@
 
 ## 6) Verification
 
-- [ ] `pnpm build` passes in `backend` and `packages`
-- [ ] `pnpm test` passes (betting tests + new holdem tests)
+- [x] `pnpm build` passes in `backend` and `packages`
+- [x] `pnpm test` passes (betting tests + new holdem tests)
 - [ ] Docker dev stack starts:
   - [ ] `docker compose --profile dev up --build -d`
 - [ ] `/api/health` returns 200
