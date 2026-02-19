@@ -1,0 +1,9 @@
+{
+  "name": "paprikaplay",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "test": "pnpm -r --if-present test"
+  }
+}
