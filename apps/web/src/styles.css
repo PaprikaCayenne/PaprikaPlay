@@ -82,6 +82,20 @@ input {
   color: inherit;
 }
 
+select {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+}
+
+summary {
+  cursor: pointer;
+  font-weight: 700;
+  margin-bottom: 0.55rem;
+}
+
 button {
   border: 0;
   border-radius: 10px;
@@ -155,6 +169,15 @@ button:disabled {
   margin-top: 0.75rem;
   grid-template-columns: 1fr auto;
   align-items: end;
+}
+
+.join-qr {
+  width: 220px;
+  max-width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 209, 102, 0.4);
+  background: #fff;
+  padding: 0.35rem;
 }
 
 .error {

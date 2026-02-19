@@ -21,6 +21,18 @@ type JoinLookupResponse = {
   playerCount: number;
 };
 
+type CreateTableResponse = JoinLookupResponse & {
+  roomName: string;
+  gameId: string;
+};
+
+type AvailableGame = {
+  id: string;
+  name: string;
+  status: 'available' | string;
+  note?: string;
+};
+
 type JoinAck = {
   ok: boolean;
   message?: string;
@@ -80,6 +92,20 @@ type GameAck = {
   message?: string;
   tableId?: string;
   phase?: string;
+};
+
+type TableJoinInfoEvent = {
+  tableId: string;
+  joinCode: string;
+  showJoinInfo: boolean;
+};
+
+type TableJoinInfoAck = {
+  ok: boolean;
+  message?: string;
+  tableId?: string;
+  joinCode?: string;
+  showJoinInfo?: boolean;
 };
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
@@ -181,12 +207,52 @@ function PublicViewPanel({
 }
 
 function JoinPage() {
+  const [searchParams] = useSearchParams();
+  const joinCodeFromQuery = (searchParams.get('code') ?? '').trim().toUpperCase();
   const [joinCode, setJoinCode] = useState('');
   const [playerName, setPlayerName] = useState('Player');
+  const [roomName, setRoomName] = useState('Paprika Room');
+  const [tableName, setTableName] = useState('Paprika Table');
+  const [games, setGames] = useState<AvailableGame[]>([
+    { id: 'holdem', name: "Texas Hold'em", status: 'available', note: 'MVP' },
+  ]);
+  const [selectedGameId, setSelectedGameId] = useState('holdem');
   const [asHost, setAsHost] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (joinCodeFromQuery.length > 0) {
+      setJoinCode(joinCodeFromQuery);
+    }
+  }, [joinCodeFromQuery]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadGames = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/games`);
+        if (!response.ok) {
+          return;
+        }
+
+        const data = (await response.json()) as { games?: AvailableGame[] };
+        if (!cancelled && Array.isArray(data.games) && data.games.length > 0) {
+          setGames(data.games);
+          setSelectedGameId(data.games[0]!.id);
+        }
+      } catch {
+        // Keep local fallback game list when API is unavailable.
+      }
+    };
+
+    void loadGames();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -194,6 +260,32 @@ function JoinPage() {
     setError(null);
 
     try {
+      const playerId = `${playerName.trim() || 'Player'}-${Date.now()}`;
+
+      if (asHost) {
+        const selectedGame = games.find((game) => game.id === selectedGameId) ?? games[0]!;
+        const createResponse = await fetch(`${API_URL}/api/tables`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            roomName: roomName.trim() || 'Paprika Room',
+            name: tableName.trim() || 'Paprika Table',
+            gameId: selectedGame.id,
+            hostPlayerId: playerId,
+          }),
+        });
+        if (!createResponse.ok) {
+          setError('Unable to create room/table');
+          return;
+        }
+
+        const created = (await createResponse.json()) as CreateTableResponse;
+        navigate(
+          `/host/${created.tableId}?player=${encodeURIComponent(playerId)}&host=1&code=${encodeURIComponent(created.joinCode)}&room=${encodeURIComponent(created.roomName)}&table=${encodeURIComponent(created.name)}&game=${encodeURIComponent(created.gameId)}&gameName=${encodeURIComponent(selectedGame.name)}`,
+        );
+        return;
+      }
+
       const normalizedCode = joinCode.trim().toUpperCase();
       const response = await fetch(`${API_URL}/api/tables/join/${normalizedCode}`);
       if (!response.ok) {
@@ -202,9 +294,7 @@ function JoinPage() {
       }
 
       const data = (await response.json()) as JoinLookupResponse;
-      const playerId = `${playerName.trim() || 'Player'}-${Date.now()}`;
-      const hostParam = asHost ? '&host=1' : '';
-      navigate(`/p/${data.tableId}?player=${encodeURIComponent(playerId)}${hostParam}`);
+      navigate(`/p/${data.tableId}?player=${encodeURIComponent(playerId)}`);
     } catch {
       setError('Unable to reach backend');
     } finally {
@@ -215,19 +305,46 @@ function JoinPage() {
   return (
     <AppShell>
       <section className="panel">
-        <h2>Join Table</h2>
-        <p>Enter the 6-letter code from the shared screen.</p>
+        <h2>{asHost ? 'Create Room and Table' : 'Join Table'}</h2>
+        <p>{asHost ? 'Configure the room, pick a game, and create a join code.' : 'Enter the 6-letter code from the shared screen.'}</p>
         <form onSubmit={onSubmit} className="stack">
-          <label>
-            Join code
-            <input
-              value={joinCode}
-              onChange={(event) => setJoinCode(event.target.value)}
-              placeholder="ABCDEF"
-              maxLength={6}
-              required
-            />
-          </label>
+          {!asHost ? (
+            <label>
+              Join code
+              <input
+                value={joinCode}
+                onChange={(event) => setJoinCode(event.target.value)}
+                placeholder="ABCDEF"
+                maxLength={6}
+                required
+              />
+            </label>
+          ) : (
+            <section className="panel">
+              <h3>Host Setup</h3>
+              <div className="stack">
+                <label>
+                  Room name
+                  <input value={roomName} onChange={(event) => setRoomName(event.target.value)} required />
+                </label>
+                <label>
+                  Table name
+                  <input value={tableName} onChange={(event) => setTableName(event.target.value)} required />
+                </label>
+                <label>
+                  Game
+                  <select value={selectedGameId} onChange={(event) => setSelectedGameId(event.target.value)}>
+                    {games.map((game) => (
+                      <option key={game.id} value={game.id}>
+                        {game.name}
+                        {game.note ? ` (${game.note})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </section>
+          )}
           <label>
             Player name
             <input value={playerName} onChange={(event) => setPlayerName(event.target.value)} required />
@@ -237,7 +354,7 @@ function JoinPage() {
             Join as host
           </label>
           <button type="submit" disabled={pending}>
-            {pending ? 'Joining...' : 'Join'}
+            {pending ? (asHost ? 'Creating...' : 'Joining...') : asHost ? 'Create Table' : 'Join'}
           </button>
           {error ? <p className="error">{error}</p> : null}
         </form>
@@ -250,8 +367,18 @@ function ScreenPage() {
   const { tableId = '' } = useParams();
   const [publicView, setPublicView] = useState<PublicView | null>(null);
   const [playerCount, setPlayerCount] = useState<number | null>(null);
+  const [tableJoinCode, setTableJoinCode] = useState('');
+  const [showJoinInfo, setShowJoinInfo] = useState(true);
   const [socketOnline, setSocketOnline] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const joinUrl = useMemo(
+    () => `${window.location.origin}/join${tableJoinCode ? `?code=${encodeURIComponent(tableJoinCode)}` : ''}`,
+    [tableJoinCode],
+  );
+  const joinQrUrl = useMemo(
+    () => (tableJoinCode ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(joinUrl)}` : ''),
+    [joinUrl, tableJoinCode],
+  );
 
   useEffect(() => {
     const client = io(API_URL, { transports: ['websocket'] });
@@ -267,6 +394,9 @@ function ScreenPage() {
         if (typeof ack.playerCount === 'number') {
           setPlayerCount(ack.playerCount);
         }
+      });
+      client.emit('table:getJoinInfo', { tableId }, () => {
+        // handled by table:joinInfo event
       });
     });
 
@@ -295,6 +425,14 @@ function ScreenPage() {
       setError(payload.message ?? 'Table error');
     });
 
+    client.on('table:joinInfo', (payload: TableJoinInfoEvent) => {
+      if (payload.tableId !== tableId) {
+        return;
+      }
+      setTableJoinCode(payload.joinCode);
+      setShowJoinInfo(payload.showJoinInfo);
+    });
+
     return () => {
       client.disconnect();
     };
@@ -303,6 +441,22 @@ function ScreenPage() {
   return (
     <AppShell>
       <PublicViewPanel tableId={tableId} view={publicView} playerCount={playerCount} />
+      <section className="panel">
+        <h2>Player Join</h2>
+        {showJoinInfo ? (
+          <>
+            <p>
+              <strong>Join code:</strong> {tableJoinCode || 'loading...'}
+            </p>
+            {joinQrUrl ? <img src={joinQrUrl} alt="Table join QR code" className="join-qr" /> : null}
+            <p>
+              <strong>Join URL:</strong> {joinUrl}
+            </p>
+          </>
+        ) : (
+          <p>Host has hidden join code and QR for this table.</p>
+        )}
+      </section>
       <section className="panel">
         <p>
           <strong>Socket:</strong> {socketOnline ? 'online' : 'offline'}
@@ -313,7 +467,7 @@ function ScreenPage() {
   );
 }
 
-function PlayerPage() {
+function PlayerPage({ forceHost = false }: { forceHost?: boolean }) {
   const { tableId = '' } = useParams();
   const [searchParams] = useSearchParams();
   const playerIdParam = searchParams.get('player');
@@ -321,7 +475,22 @@ function PlayerPage() {
     () => (playerIdParam && playerIdParam.trim().length > 0 ? playerIdParam : `player-${Date.now()}`),
     [playerIdParam],
   );
-  const isHost = searchParams.get('host') === '1';
+  const isHost = forceHost || searchParams.get('host') === '1';
+  const joinCodeParam = searchParams.get('code');
+  const [joinCode, setJoinCode] = useState(joinCodeParam ?? '');
+  const roomName = searchParams.get('room') ?? 'Paprika Room';
+  const hostTableName = searchParams.get('table') ?? 'Paprika Table';
+  const selectedGameId = searchParams.get('game') ?? 'holdem';
+  const selectedGameName = searchParams.get('gameName') ?? (selectedGameId === 'holdem' ? "Texas Hold'em" : selectedGameId);
+  const screenUrl = useMemo(() => `${window.location.origin}/screen/${tableId}`, [tableId]);
+  const playerJoinUrl = useMemo(
+    () => `${window.location.origin}/join${joinCode ? `?code=${encodeURIComponent(joinCode)}` : ''}`,
+    [joinCode],
+  );
+  const playerJoinQrUrl = useMemo(
+    () => (joinCode ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(playerJoinUrl)}` : ''),
+    [joinCode, playerJoinUrl],
+  );
 
   const [socket, setSocket] = useState<Socket | null>(null);
   const [joinAck, setJoinAck] = useState<JoinAck | null>(null);
@@ -330,10 +499,18 @@ function PlayerPage() {
   const [playerView, setPlayerView] = useState<PlayerView | null>(null);
   const [socketOnline, setSocketOnline] = useState(false);
   const [actionPending, setActionPending] = useState(false);
+  const [joinInfoPending, setJoinInfoPending] = useState(false);
   const [betAmount, setBetAmount] = useState(10);
   const [raiseToAmount, setRaiseToAmount] = useState(20);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>('Waiting for game state');
+  const [showJoinInfo, setShowJoinInfo] = useState(true);
+
+  useEffect(() => {
+    if (joinCodeParam) {
+      setJoinCode(joinCodeParam);
+    }
+  }, [joinCodeParam]);
 
   useEffect(() => {
     const client = io(API_URL, { transports: ['websocket'] });
@@ -351,6 +528,10 @@ function PlayerPage() {
         if (typeof ack.playerCount === 'number') {
           setPlayerCount(ack.playerCount);
         }
+
+        client.emit('table:getJoinInfo', { tableId }, () => {
+          // handled by table:joinInfo event
+        });
 
         client.emit('game:state', { tableId }, (stateAck: GameAck) => {
           if (stateAck.ok) {
@@ -397,6 +578,14 @@ function PlayerPage() {
 
     client.on('table:error', (payload: { message?: string }) => {
       setError(payload.message ?? 'Socket error');
+    });
+
+    client.on('table:joinInfo', (payload: TableJoinInfoEvent) => {
+      if (payload.tableId !== tableId) {
+        return;
+      }
+      setJoinCode(payload.joinCode);
+      setShowJoinInfo(payload.showJoinInfo);
     });
 
     client.on('game:error', (payload: { message?: string }) => {
@@ -448,6 +637,33 @@ function PlayerPage() {
     });
   };
 
+  const onToggleJoinInfoVisibility = () => {
+    if (!socket) {
+      setError('Socket not connected');
+      return;
+    }
+
+    setJoinInfoPending(true);
+    setError(null);
+    socket.emit(
+      'table:setJoinInfoVisibility',
+      { tableId, visible: !showJoinInfo },
+      (ack: TableJoinInfoAck) => {
+        setJoinInfoPending(false);
+        if (!ack.ok) {
+          setError(ack.message ?? 'Unable to update table join visibility');
+          return;
+        }
+        if (typeof ack.joinCode === 'string') {
+          setJoinCode(ack.joinCode);
+        }
+        if (typeof ack.showJoinInfo === 'boolean') {
+          setShowJoinInfo(ack.showJoinInfo);
+        }
+      },
+    );
+  };
+
   return (
     <AppShell>
       <section className="panel">
@@ -470,14 +686,48 @@ function PlayerPage() {
         <p>
           <strong>Current turn:</strong> {publicView?.activePlayerId ?? 'none'}
         </p>
-        {isHost ? (
-          <button type="button" onClick={onStartGame} disabled={actionPending}>
-            Start Game
-          </button>
-        ) : null}
         {info ? <p>{info}</p> : null}
         {error ? <p className="error">{error}</p> : null}
       </section>
+
+      {isHost ? (
+        <details className="panel" open>
+          <summary>Admin Panel</summary>
+          <p>
+            <strong>Role:</strong> host admin
+          </p>
+          <p>
+            <strong>Room:</strong> {roomName}
+          </p>
+          <p>
+            <strong>Table:</strong> {hostTableName}
+          </p>
+          <p>
+            <strong>Game:</strong> {selectedGameName}
+          </p>
+          <p>
+            <strong>Join code:</strong> {joinCode || 'loading...'}
+          </p>
+          {playerJoinQrUrl ? <img src={playerJoinQrUrl} alt="Player join QR code" className="join-qr" /> : null}
+          <p>
+            <strong>Player join URL:</strong> {playerJoinUrl}
+          </p>
+          <p>
+            <strong>Table join visibility:</strong> {showJoinInfo ? 'shown on table screen' : 'hidden on table screen'}
+          </p>
+          <p>
+            <strong>Screen URL:</strong> {screenUrl}
+          </p>
+          <div className="action-grid">
+            <button type="button" onClick={onToggleJoinInfoVisibility} disabled={joinInfoPending || actionPending}>
+              {showJoinInfo ? 'Hide Join Code and QR on Table' : 'Show Join Code and QR on Table'}
+            </button>
+            <button type="button" onClick={onStartGame} disabled={actionPending}>
+              Start Game
+            </button>
+          </div>
+        </details>
+      ) : null}
 
       <PublicViewPanel tableId={tableId} view={publicView} playerCount={playerCount} />
 
@@ -563,6 +813,7 @@ export function App() {
       <Route path="/" element={<Navigate to="/join" replace />} />
       <Route path="/join" element={<JoinPage />} />
       <Route path="/screen/:tableId" element={<ScreenPage />} />
+      <Route path="/host/:tableId" element={<PlayerPage forceHost />} />
       <Route path="/p/:tableId" element={<PlayerPage />} />
       <Route path="*" element={<Navigate to="/join" replace />} />
     </Routes>

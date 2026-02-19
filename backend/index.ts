@@ -19,7 +19,30 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*' },
 });
-const tables = new Map<string, { id: string; name: string; joinCode: string; players: Set<string> }>();
+const AVAILABLE_GAMES = [
+  {
+    id: 'holdem',
+    name: "Texas Hold'em",
+    status: 'available',
+    note: 'MVP',
+  },
+] as const;
+
+type AvailableGame = (typeof AVAILABLE_GAMES)[number];
+
+const tables = new Map<
+  string,
+  {
+    id: string;
+    name: string;
+    joinCode: string;
+    players: Set<string>;
+    roomName: string;
+    gameId: AvailableGame['id'];
+    hostPlayerId: string | null;
+    showJoinInfo: boolean;
+  }
+>();
 const socketPlayers = new Map<string, { tableId: string; playerId: string }>();
 const gameStates = new Map<string, HoldemState>();
 
@@ -28,6 +51,14 @@ type TableAckResponse = {
   message?: string;
   tableId?: string;
   playerCount?: number;
+};
+
+type TableJoinInfoAckResponse = {
+  ok: boolean;
+  message?: string;
+  tableId?: string;
+  joinCode?: string;
+  showJoinInfo?: boolean;
 };
 
 type GameAckResponse = {
@@ -116,13 +147,47 @@ function emitGameViewsToSocket(socketId: string, tableId: string, playerId: stri
   });
 }
 
+function emitJoinInfo(tableId: string, socketId?: string) {
+  const table = tables.get(tableId);
+  if (!table) {
+    return;
+  }
+
+  const payload = {
+    tableId,
+    joinCode: table.joinCode,
+    showJoinInfo: table.showJoinInfo,
+  };
+
+  if (socketId) {
+    io.to(socketId).emit('table:joinInfo', payload);
+    return;
+  }
+
+  io.to(`table:${tableId}`).emit('table:joinInfo', payload);
+}
+
 app.use(cors());
 app.use(express.json());
+
+app.get('/', (req, res) => {
+  res.json({
+    ok: true,
+    service: 'PaprikaPlay backend',
+    health: '/api/health',
+  });
+});
 
 app.get('/api/health', (req, res) => {
   res.status(isDatabaseReady ? 200 : 503).json({
     ok: isDatabaseReady,
     status: isDatabaseReady ? 'PaprikaPlay backend running' : 'PaprikaPlay backend waiting for database',
+  });
+});
+
+app.get('/api/games', (req, res) => {
+  res.json({
+    games: AVAILABLE_GAMES,
   });
 });
 
@@ -144,15 +209,32 @@ function findTableByJoinCode(joinCode: string) {
 }
 
 app.post('/api/tables', (req, res) => {
+  const requestedRoomName = typeof req.body?.roomName === 'string' ? req.body.roomName.trim() : '';
+  const roomName = requestedRoomName.length > 0 ? requestedRoomName : 'Paprika Room';
   const requestedName = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
   const name = requestedName.length > 0 ? requestedName : 'Paprika Table';
+  const requestedGameId = typeof req.body?.gameId === 'string' ? req.body.gameId.trim() : '';
+  const gameId = AVAILABLE_GAMES.find((game) => game.id === requestedGameId)?.id ?? 'holdem';
+  const requestedHostPlayerId = typeof req.body?.hostPlayerId === 'string' ? req.body.hostPlayerId.trim() : '';
+  const hostPlayerId = requestedHostPlayerId.length > 0 ? requestedHostPlayerId : null;
   const tableId = `tbl_${Date.now()}_${randomInt(100000, 999999)}`;
   const joinCode = generateJoinCode();
-  tables.set(tableId, { id: tableId, name, joinCode, players: new Set() });
+  tables.set(tableId, {
+    id: tableId,
+    name,
+    joinCode,
+    players: new Set(),
+    roomName,
+    gameId,
+    hostPlayerId,
+    showJoinInfo: true,
+  });
 
   res.status(201).json({
     tableId,
+    roomName,
     name,
+    gameId,
     joinCode,
     playerCount: 0,
   });
@@ -211,6 +293,7 @@ io.on('connection', (socket) => {
       playerCount: table.players.size,
     });
     ack?.({ ok: true, tableId, playerCount: table.players.size });
+    emitJoinInfo(tableId);
     emitGameViewsToSocket(socket.id, tableId, playerId);
   };
 
@@ -271,6 +354,7 @@ io.on('connection', (socket) => {
 
       await socket.join(`table:${tableId}`);
       ack?.({ ok: true, tableId, playerCount: table.players.size });
+      emitJoinInfo(tableId, socket.id);
 
       const state = gameStates.get(tableId);
       if (state) {
@@ -279,6 +363,75 @@ io.on('connection', (socket) => {
           view: holdemModule.getPublicView(state),
         });
       }
+    },
+  );
+
+  socket.on(
+    'table:getJoinInfo',
+    ({ tableId }: { tableId?: string }, ack?: (response: TableJoinInfoAckResponse) => void) => {
+      if (!tableId) {
+        socket.emit('table:error', { message: 'tableId is required' });
+        ack?.({ ok: false, message: 'tableId is required' });
+        return;
+      }
+
+      const table = tables.get(tableId);
+      if (!table) {
+        socket.emit('table:error', { message: 'Table not found' });
+        ack?.({ ok: false, message: 'Table not found' });
+        return;
+      }
+
+      emitJoinInfo(tableId, socket.id);
+      ack?.({
+        ok: true,
+        tableId,
+        joinCode: table.joinCode,
+        showJoinInfo: table.showJoinInfo,
+      });
+    },
+  );
+
+  socket.on(
+    'table:setJoinInfoVisibility',
+    (
+      { tableId, visible }: { tableId?: string; visible?: boolean },
+      ack?: (response: TableJoinInfoAckResponse) => void,
+    ) => {
+      if (!tableId) {
+        socket.emit('table:error', { message: 'tableId is required' });
+        ack?.({ ok: false, message: 'tableId is required' });
+        return;
+      }
+
+      const table = tables.get(tableId);
+      if (!table) {
+        socket.emit('table:error', { message: 'Table not found' });
+        ack?.({ ok: false, message: 'Table not found' });
+        return;
+      }
+
+      const joined = socketPlayers.get(socket.id);
+      if (!joined || joined.tableId !== tableId) {
+        socket.emit('table:error', { message: 'Socket must join table before managing join info visibility' });
+        ack?.({ ok: false, message: 'Socket must join table before managing join info visibility' });
+        return;
+      }
+
+      if (table.hostPlayerId && joined.playerId !== table.hostPlayerId) {
+        socket.emit('table:error', { message: 'Only the host can manage join info visibility' });
+        ack?.({ ok: false, message: 'Only the host can manage join info visibility' });
+        return;
+      }
+
+      table.showJoinInfo = Boolean(visible);
+      emitJoinInfo(tableId);
+      ack?.({
+        ok: true,
+        tableId,
+        joinCode: table.joinCode,
+        showJoinInfo: table.showJoinInfo,
+      });
     },
   );
 
