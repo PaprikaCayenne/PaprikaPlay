@@ -4,13 +4,14 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { randomInt } from 'node:crypto';
+import { PrismaClient } from '@prisma/client';
 
 dotenv.config();
 
 const PORT = Number(process.env.PORT) || 3001;
 const STARTUP_RETRY_ATTEMPTS = Number(process.env.STARTUP_RETRY_ATTEMPTS ?? 10);
 const STARTUP_RETRY_DELAY_MS = Number(process.env.STARTUP_RETRY_DELAY_MS ?? 2000);
-let prismaClient: { $connect: () => Promise<void> } | null = null;
+let prismaClient: PrismaClient | null = null;
 let isDatabaseReady = false;
 const app = express();
 const server = http.createServer(app);
@@ -176,13 +177,13 @@ io.on('connection', (socket) => {
 
 async function connectToDatabaseWithRetry() {
   if (!prismaClient) {
-    const { PrismaClient } = await import('@prisma/client');
     prismaClient = new PrismaClient();
   }
+  const client = prismaClient;
 
   for (let attempt = 1; attempt <= STARTUP_RETRY_ATTEMPTS; attempt += 1) {
     try {
-      await prismaClient.$connect();
+      await client.$connect();
       console.log('Connected to the database');
       isDatabaseReady = true;
       return;
