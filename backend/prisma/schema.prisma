@@ -1,0 +1,44 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Household {
+  id        Int       @id @default(autoincrement())
+  name      String
+  lobbies   Lobby[]
+  createdAt DateTime  @default(now())
+}
+
+model Lobby {
+  id          Int       @id @default(autoincrement())
+  name        String
+  household   Household @relation(fields: [householdId], references: [id])
+  householdId Int
+  tables      Table[]
+  createdAt   DateTime  @default(now())
+}
+
+model Table {
+  id        Int       @id @default(autoincrement())
+  name      String
+  lobby     Lobby     @relation(fields: [lobbyId], references: [id])
+  lobbyId   Int
+  users     User[]
+  state     Json      @default("{}")
+  createdAt DateTime  @default(now())
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  name      String
+  deviceId  String    @unique
+  table     Table?    @relation(fields: [tableId], references: [id])
+  tableId   Int?
+  stats     Json      @default("{}")
+  createdAt DateTime  @default(now())
+}
