@@ -1,0 +1,22 @@
+# local-only stores (gitignored)
+artifacts/
+secrets/
+
+# env - never commit
+.env
+.env.*
+# editor / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+*.log
+# language / tooling
+node_modules/
+dist/
+build/
+__pycache__/
+.venv/
+venv/
