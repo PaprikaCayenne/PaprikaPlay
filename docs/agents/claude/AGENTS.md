@@ -1,7 +1,9 @@
 # Agent Workspace: claude
 
 ## Agent-specific notes
-<!-- environment quirks, tool constraints, API notes -->
+- Backend runs on CT 219 (tabletopgaming) in /mnt/docker/PaprikaPlay
+- Postgres on CT 216 (192.168.50.209:5432), database: paprika_play_dev
+- Docker Compose for local dev (backend + web services, no DB container)
 
 ## Required reads each session
 1. AGENTS.md (repo root)
@@ -17,3 +19,7 @@
   Create:  git checkout -b agent/claude/<task-slug>
   Merge:   git checkout main && git merge agent/claude/<task-slug>
   Delete:  git branch -d agent/claude/<task-slug>
+
+## Key project docs
+- docs/instructions/spec.md (product spec and MVP scope)
+- docs/instructions/architecture.md (contracts, state model, structure)

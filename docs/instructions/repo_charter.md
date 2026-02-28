@@ -1,18 +1,7 @@
-# Repo Charter - PaprikaPlay
+# Repo Charter
 
-## Purpose
-A tabletop game made digitial
+PaprikaPlay is an online multiplayer tabletop platform.
+Shared screen on TV, private hands on phones, server-authoritative.
 
-## In scope
--
-
-## Out of scope
--
-
-## Owner
-Paprika Cayenne
-
-## Operational notes
-- Secrets: secrets/ only (gitignored).
-- Human outputs: deliverables/
-- Agent working space: artifacts/ (gitignored)
+For the full product spec, see: docs/instructions/spec.md
+For technical architecture, see: docs/instructions/architecture.md
